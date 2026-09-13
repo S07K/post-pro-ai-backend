@@ -15,7 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const user_1 = __importDefault(require("../models/user"));
 const auth_1 = require("../middleware/auth");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jwt = require("jsonwebtoken");
+const SALT_ROUNDS = 10;
 const JWT_TOKEN_SECRET = process.env.JWT_TOKEN_SECRET;
 const app = express_1.default.Router();
 app.use(express_1.default.json());
@@ -36,10 +38,12 @@ app.post("/login", (req, res) => {
             .send({ status: "error", message: "Missing required fields" });
     }
     else {
-        user_1.default.find({ email, password })
+        user_1.default.findOne({ email })
             .then((user) => __awaiter(void 0, void 0, void 0, function* () {
-            if (user.length > 0) {
-                const token = yield generateToken(user[0]);
+            // passwords are stored as bcrypt hashes, so compare instead of querying by password
+            const isValid = user ? yield bcryptjs_1.default.compare(password, user.password) : false;
+            if (user && isValid) {
+                const token = yield generateToken(user);
                 if (token) {
                     res.status(200).json({
                         status: "success",
@@ -70,12 +74,13 @@ app.post("/create", (req, res) => {
     }
     else {
         user_1.default.find({ email })
-            .then((user) => {
+            .then((user) => __awaiter(void 0, void 0, void 0, function* () {
             if (user.length > 0) {
                 res.send({ status: "error", message: "User already exists" });
             }
             else {
-                user_1.default.create({ email, password })
+                const hashedPassword = yield bcryptjs_1.default.hash(password, SALT_ROUNDS);
+                user_1.default.create({ email, password: hashedPassword })
                     .then((user) => {
                     res.send({
                         status: "success",
@@ -87,7 +92,7 @@ app.post("/create", (req, res) => {
                     res.status(500).send({ status: "error", message: err.message });
                 });
             }
-        })
+        }))
             .catch((err) => {
             res.status(500).send({ status: "error", message: err.message });
         });
@@ -140,7 +145,7 @@ app.get("/:id", (req, res) => {
         });
     }
 });
-app.put("/:id", (req, res) => {
+app.put("/:id", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     const { username, email, password, profilePic, bio, followers, following, verified, createdAt, } = req.body;
     if (!username || !email) {
@@ -150,7 +155,7 @@ app.put("/:id", (req, res) => {
         user_1.default.findByIdAndUpdate(id, {
             username,
             email,
-            password,
+            password: password ? yield bcryptjs_1.default.hash(password, SALT_ROUNDS) : undefined,
             profilePic,
             bio,
             followers,
@@ -165,7 +170,7 @@ app.put("/:id", (req, res) => {
             res.send(err);
         });
     }
-});
+}));
 app.delete("/:id", (req, res) => {
     const { id } = req.params;
     user_1.default.findByIdAndDelete(id)

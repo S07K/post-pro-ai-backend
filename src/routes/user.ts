@@ -1,7 +1,9 @@
 import express, { Request } from "express";
 import User from "../models/user";
 import { authMiddleware } from "../middleware/auth";
+import bcrypt from "bcryptjs";
 const jwt = require("jsonwebtoken");
+const SALT_ROUNDS = 10;
 const JWT_TOKEN_SECRET = process.env.JWT_TOKEN_SECRET;
 
 const app = express.Router();
@@ -26,10 +28,12 @@ app.post("/login", (req: Request, res) => {
       .status(400)
       .send({ status: "error", message: "Missing required fields" });
   } else {
-    User.find({ email, password })
+    User.findOne({ email })
       .then(async (user) => {
-        if (user.length > 0) {
-          const token = await generateToken(user[0]);
+        // passwords are stored as bcrypt hashes, so compare instead of querying by password
+        const isValid = user ? await bcrypt.compare(password, user.password) : false;
+        if (user && isValid) {
+          const token = await generateToken(user);
           if (token) {
             res.status(200).json({
               status: "success",
@@ -58,11 +62,12 @@ app.post("/create", (req: Request, res) => {
       .send({ status: "error", message: "Missing required fields" });
   } else {
     User.find({ email })
-      .then((user) => {
+      .then(async (user) => {
         if (user.length > 0) {
           res.send({ status: "error", message: "User already exists" });
         } else {
-          User.create({ email, password })
+          const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+          User.create({ email, password: hashedPassword })
             .then((user) => {
               res.send({
                 status: "success",
@@ -126,7 +131,7 @@ app.get("/:id", (req: Request, res) => {
   }
 });
 
-app.put("/:id", (req, res) => {
+app.put("/:id", async (req, res) => {
   const { id } = req.params;
   const {
     username,
@@ -147,7 +152,7 @@ app.put("/:id", (req, res) => {
       {
         username,
         email,
-        password,
+        password: password ? await bcrypt.hash(password, SALT_ROUNDS) : undefined,
         profilePic,
         bio,
         followers,
